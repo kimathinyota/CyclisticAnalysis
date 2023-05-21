@@ -1,0 +1,749 @@
+---
+title: "Case Study: How Does a Bike-Share Navigate Speedy Success?"
+author: "Kimathi Nyota"
+date: "2023-04-18"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Loading all libraries, include=FALSE}
+library(tidyverse)
+library(tidyr)
+library(dplyr)
+library(geosphere)
+library(lubridate)
+library(readr)
+library(htmlTable)
+library(flextable)
+```
+
+The purpose of this document is to detail my overall process for exploring a given Case Study, going from accessing the data to finding insights that answer the specified business task.
+
+
+# Business Task
+
+-   Cyclistic is a fictional bike share program with a network of 692 bike stations and 5,824 Geo-tracked bicycles that can be returned (and fetched) to any station at anytime.
+-   They offer several pricing plans: single-ride and full-day passes and annual memberships.
+-   Cylistic members are categorised as follows:
+    -   Casual riders, who purchase single-ride or full-day passes
+    -   Member riders, who purchase annual memberships
+-   Cyclistic finance analysts have determined members (annual) to be more profitable riders than casual ones
+
+Goal: Investigating the differences between members and casual riders in their usage of Cyclistic bikes to better understand how to convert riders into members.
+
+# Processing Data
+
+## Where is the data located?
+
+Data has been made available by Motivate International Inc. under this [license](https://ride.divvybikes.com/data-license-agreement). For the purpose of this business task, all of the 2022 data and the available 2023 data (up to Q3 currently, 20/04/2023) was used.
+
+According to the license, this data is permitted to be used as 'source material, as applicable, in analyses, reports, or studies published or distributed for non-commercial purposes'.
+
+In this fictional scenario, the data has been collected by Cyclistic, so it will be assumed to be reliable, original and credible for this buisness task.
+
+Security considerations aren't so relevant as data is accessible online and free-to-use (but not monetize). Regardless, the data was stored on a single-user accessible and password-protected PC.
+
+## How is the data organised?
+
+Initially several CSV files of the same schema were downloaded as ZIP files and extracted and stored in a single directory. Using the below python script, all of the CSV files were merged into a single one.
+
+```{python Merge all CSVs into single dataframe, echo=TRUE}
+from os import listdir
+from os.path import isfile, join
+import pandas as pd
+def files(directory):
+    onlyfiles = [f for f in listdir(directory) if isfile(join(directory, f))]
+    return onlyfiles
+def merge_csv_files(loc):
+  for p in files(loc):
+      if '.csv' in p:
+          l = loc + "/" + p
+          df2 = pd.read_csv(l)
+          df = df2 if df is None else pd.concat([df, df2])
+```
+
+The schema of the merged CSV file
+
+```{r Show schema of merged CSV file, echo=FALSE}
+total_rows <- 6307141
+total_columns <- 13
+cols <- c('ride_id', 'rideable_type', 'start_station_name', 'start_station_id', 'end_station_name', 'end_station_id', 'member_casual', 'start_lat', 'start_lng', 'end_lat', 'end_lng', 'started_at', 'ended_at' )
+typs <- c('string', 'string', 'string', 'string', 'string', 'string', 'string', 'numeric', 'numeric', 'numeric', 'numeric', 'datetime', 'datetime')
+n_missing <- c(0, 0, 921168, 921300, 985758, 985899, 0, 0, 0, 6284, 6284, 0, 0)
+n_uniques <- c(6307141, 3, 1705, 1321, 1728, 1326, 2, NaN, NaN, NaN, NaN, NaN, NaN)
+schema <- data.frame(columns=cols, types=typs, n_missing, n_uniques )
+flextable(schema %>% mutate(completion_rate=(total_rows-n_missing)/total_rows) %>% mutate(across(where(is.numeric), round, 3)))
+```
+```{r Loading large CSV file, include=FALSE}
+folder <- "~/Data Science/Coursera Google Analytics Course/CyclisticsAnalysis"
+path_to_data <- file.path(folder, "2022-202303-divvy-tripdata.csv")
+X2022_202303_divvy_tripdata <- read_csv(path_to_data, show_col_types = FALSE)
+```
+
+
+## Problems with data
+
+The data isn't entirely complete nor consistent:
+
+-   Missing start_station_id and end_station_id data
+
+    -   Should data be filtered to rows with at least one or both?
+
+-   There more unique start_station_name than start_station_id (same for end_station_id)
+
+    -   data entry mistakes?
+
+    -   name changes over time?
+
+    -   do ids represent multiple stations? will location data support this assumption?
+
+-   Missing end_lat and end_lng data
+
+    -   Can this be inferred from start_lat and start_lng?
+
+More data integrity issues were discovered by inspecting the data.
+
+## Relationships within data
+
+The field to field relationships were investigated for the purpose of normalisation. If any one-to-one relationships are found, the data can be split into multiple tables for more efficient storage (and better data modelling).
+
+### How do names relate to station ids?
+
+Discovered the following relationships:
+
+1.  (end_station_id) many\<----\>many (end_station_name)
+
+2.  (start_station_id) many\<----\>many (start_station_name)
+
+```{r Display station to name mappings, echo=FALSE}
+# Check if names to ids are one-to-one mapping
+start_station_names <- X2022_202303_divvy_tripdata %>%
+  drop_na(start_station_id) %>%
+  group_by(start_station_name) %>%
+  reframe(start_station_id=unique(start_station_id)) %>%
+  group_by(start_station_name) %>%
+  filter(n_distinct(start_station_id) > 1) %>%
+  head()
+htmlTableWidget(start_station_names)
+end_station_names <- X2022_202303_divvy_tripdata %>%
+  drop_na(end_station_id) %>%
+  group_by(end_station_id) %>%
+  reframe(end_station_name=unique(end_station_name)) %>%
+  group_by(end_station_id) %>%
+  filter(n_distinct(end_station_name) > 1) %>%
+  head()
+flextable(end_station_names)
+```
+
+Summary:
+
+-   In simpler terms for both the start and end stations, two different stations by id may have the same name and a single station by id can have multiple names.
+
+-   Further investigation would need to be carried out to determine the cause of these inconsistencies. A prelim search revealed some potential causes: street name changes; spelling mistakes.
+
+-   Attempts at normalisation via extraction of a station table from this data set aren't feasible prior to this investigation. 
+
+-   For now, this report will assume end_station_id and start_station_id to be identifiers for their respective stations.
+
+### How do station locations relate to station ids?
+
+1.  (end_station_id) many\<----\>many (end_lng, end_lat)
+
+2.  (start_station_id) many\<----\>many (start_lng, start_lat)
+
+```{r Station to location mappings, echo=FALSE}
+
+# How do (lat, lng) relate to station ids?
+end_lat_lng_mappings <- X2022_202303_divvy_tripdata %>%
+  drop_na(end_lat, end_lng, end_station_id) %>%
+  group_by(end_lat, end_lng) %>%
+  summarize(id_count=n_distinct(end_station_id), .groups="drop") %>% 
+  filter(id_count > 1) %>% 
+  head()
+flextable(end_lat_lng_mappings)
+# How do station ids relate to (lat, lng) ?
+start_id_to_lat_lng <- X2022_202303_divvy_tripdata %>% drop_na(start_station_id, start_lat, start_lng)  %>% 
+  group_by(start_station_id) %>%
+  summarize(sd_lat=round(sd(start_lat), 4), 
+            sd_lng=round(sd(start_lng),4),
+            range_distance_variation=distm(c(min(start_lng), min(start_lat)), c(max(start_lng), max(start_lat)), fun = distHaversine)
+            ) %>% 
+  arrange(-range_distance_variation) %>% 
+  head()
+flextable(start_id_to_lat_lng)
+```
+
+Summary:
+
+-   A single coordinate (lat, lng) can have multiple station ids associated with it and vice versa.
+
+-   Insertion or rounding errors don't explain why many stations ids correspond to many different locations.
+
+  -   By applying Haversine distances between the minimum and maximum coordinates found for a given station ID, 565 start station ids had a distance of over 1km.
+
+## How does the data help to answer the business task?
+
+-   What locations and time do members and casuals concentrate at? Is there something connecting this?
+-   What types of bikes do members and casuals typically choose?
+-   Use longitudinal and latitude data to determine the total distances members and casuals travel?
+-   Look into durations of travels
+
+## Cleaning the data
+
+```{r Validating the data, echo=TRUE}
+# Check the rideable_type categories
+bike_categories <- unique(X2022_202303_divvy_tripdata$rideable_type)
+print(bike_categories)
+# Check the member_casual categories
+member_categories <- unique(X2022_202303_divvy_tripdata$member_casual)
+print(member_categories)
+# Check the date range
+date_range <- c(min(X2022_202303_divvy_tripdata$started_at), max(X2022_202303_divvy_tripdata$ended_at))
+print(date_range)
+```
+
+### What to do about missing data?
+
+1.  Missing start_station_id and end_station_id: will only remove if both are null.
+2.  Missing location data: Only an issue for end_lat and end_lng, but due to the data inconsistency between them and end_station_id, they cannot be inferred. For the sake of the report, they will be kept as null.
+3.  Missing start_station_name and end_station_name: any missing entries will be kept as null because we are assuming start_station_id and end_station_id as the identifier for stations.
+
+
+```{r reducing data, echo=TRUE}
+clean_data <- X2022_202303_divvy_tripdata %>% filter(!(is.na(start_station_id) & is.na(end_station_id)))
+```
+
+### Adding important metrics
+
+Using the datetime and latitude/longitude fields, a duration and distance could be calculated for each ride respectively.
+
+```{r Adding metrics, echo=TRUE}
+# Used Haversine distance in library(geosphere)
+example_clean_data <- clean_data %>% drop_na(start_lat, end_lng, end_lat, start_lng) %>% head()
+h_distances <- apply(example_clean_data[c('start_lng', 'start_lat', 'end_lng', 'end_lat')], 1, function(x) distm(c(x[1], x[2]), c(x[3], x[4]), fun=distHaversine))
+example_clean_data <- cbind(example_clean_data, h_distances)
+
+# Calculating duration:
+example_clean_data_with_metrics <- example_clean_data %>% mutate(ride_duration_mins=round(as.numeric(ended_at-started_at)/60, 3)) %>% rename(haversine_distance=h_distances)
+
+flextable(example_clean_data_with_metrics %>% select(ride_id, ride_duration_mins, haversine_distance))
+```
+
+```{r Importing clean data, include=FALSE}
+path_to_data <- file.path(folder, "clean_2022-202303-divy-tripdata.csv")
+clean_data_with_metrics <- read_csv(path_to_data, show_col_types = FALSE)
+```
+
+# Analysis
+
+Insights can be found by grouping the rides by member or casuals and summarising based on a variety of different distance and duration and count aggregations for each group. Below show all the aggregations chosen: 
+```{r Summarising data, echo=TRUE}
+basic_summary <- clean_data_with_metrics %>% group_by(member_casual) %>% 
+  summarize(number_of_rides=n(), 
+            mean_h_distance=mean(haversine_distance, na.rm=TRUE),
+            median_h_distance=median(haversine_distance, na.rm=TRUE),
+            total_h_distance=sum(haversine_distance, na.rm=TRUE),
+            std_h_distance=sd(haversine_distance, na.rm=TRUE),
+            mean_duration_mins=mean(ride_duration_mins, na.rm=TRUE),
+            median_duration_mins=median(ride_duration_mins, na.rm=TRUE),
+            total_duration_mins=sum(ride_duration_mins, na.rm=TRUE), 
+            std_duration=sd(ride_duration_mins, na.rm=TRUE),
+            number_of_electric=sum(rideable_type=='electric_bike'),
+            number_of_classic=sum(rideable_type=='classic_bike'), 
+            number_of_docked=sum(rideable_type=='docked_bike'), .groups = "drop")
+
+counts_per_bike_type <- basic_summary  %>%  select(member_casual, number_of_electric, number_of_classic, number_of_docked, number_of_rides)
+distances_summary <- basic_summary %>% select(member_casual, total_h_distance, median_h_distance, mean_h_distance, std_h_distance)
+durations_summary <- basic_summary %>% select(member_casual, total_duration_mins, median_duration_mins, mean_duration_mins, std_duration)
+```
+
+```{r Save basic summary, include=FALSE}
+summary_path <- file.path(folder, "basic_summary.csv")
+write.csv(basic_summary, summary_path, row.names=FALSE)
+```
+
+
+## How do members and casual differ in their chosen type of bikes?
+
+```{r echo=TRUE}
+
+bike_type_proprotions = counts_per_bike_type %>% mutate(electric=100*number_of_electric/number_of_rides, 
+                                      classic=100*number_of_classic/number_of_rides,
+                                      docked=100*number_of_docked/number_of_rides) %>%
+        select(member_casual, electric, classic, docked) %>% 
+        gather(key="rideable_type", value="percentage_of_rides", 2:4)
+
+ggplot(data=bike_type_proprotions) + 
+  geom_bar(mapping=aes(y=rideable_type, x=percentage_of_rides), stat='identity') +
+  facet_wrap(~member_casual) + 
+  labs(title="Bike Type Choices",
+       y="Type of bike",
+       x="Percentage of rides")
+```
+
+-   No members use docked bikes
+-   Members use classic more than electric while casuals use electric more than classic
+
+## How do members and casual differ in their ride durations?
+
+```{r echo=TRUE}
+durations_by_member <- durations_summary %>% mutate(total_duration_hours=as.numeric(total_duration_mins/60)) %>% 
+  select(member_casual, median_duration_mins, total_duration_hours, mean_duration_mins, std_duration)
+flextable(durations_by_member)
+```
+
+-   Casual members go for slightly longer (in duration) rides than members.
+-   There's considerably more variation (\~a factor of 10) in ride duration for casual riders than members.
+
+```{r echo=TRUE}
+distances_by_member <- distances_summary %>% mutate(total_distance_km=as.numeric(total_h_distance/1000),
+                             mean_distance_km=as.numeric(mean_h_distance/1000),
+                             std_distance_km=as.numeric(std_h_distance/1000),
+                             median_distance_km=as.numeric(median_h_distance/1000)) %>% 
+  select(member_casual, median_distance_km, total_distance_km, mean_distance_km, std_distance_km)  %>% 
+  mutate(across(where(is.numeric), round, 3))
+flextable(distances_by_member)
+```
+
+-   Casual and members travel similar distances.
+
+```{r include=FALSE}
+library(lubridate)
+d <- clean_data_with_metrics %>%  mutate(started_at_day=day(started_at),
+                                         started_at_wday=weekdays(started_at),
+                                         started_at_hour=hour(started_at),
+                                         started_at_month=month(started_at, label=TRUE))
+
+started_at_wd_by_hour <- d %>% group_by(member_casual, started_at_wday, started_at_hour) %>% 
+  summarize(mean_ride_duration_mins = mean(ride_duration_mins, na.rm = TRUE),
+            median_ride_duration_mins = median(ride_duration_mins, na.rm = TRUE),
+            total_ride_durations_mins=sum(ride_duration_mins), na.rm = TRUE,
+            mean_ride_distance_m = mean(haversine_distance, na.rm = TRUE),
+            median_ride_distance_m = median(haversine_distance, na.rm = TRUE),
+            total_ride_distance_m = sum(haversine_distance, na.rm = TRUE),
+            total_rides = n())
+
+started_at_d_by_month <- d %>% group_by(member_casual, started_at_day, started_at_month) %>% 
+  summarize(mean_ride_duration_mins = mean(ride_duration_mins, na.rm = TRUE),
+            median_ride_duration_mins = median(ride_duration_mins, na.rm = TRUE),
+            total_ride_durations_mins=sum(ride_duration_mins), na.rm = TRUE,
+            mean_ride_distance_m = mean(haversine_distance, na.rm = TRUE),
+            median_ride_distance_m = median(haversine_distance, na.rm = TRUE),
+            total_ride_distance_m = sum(haversine_distance, na.rm = TRUE),
+            total_rides = n())
+```
+
+
+## How do members and casual riders vary by days and months?
+
+### By number of rides
+
+```{r total rides over days and hours, echo=FALSE}
+ggplot(data=started_at_wd_by_hour) +
+  geom_tile(mapping = aes(y = started_at_wday, x = started_at_hour, fill=total_rides)) +
+  facet_wrap(~member_casual) + 
+  labs(title="Ride totals over week days and hours",
+       y="Week Day",
+       x="Hour",
+       fill="Total number of rides",
+       caption="Week Day and hour extracted from started_at")
+
+
+ggplot(data=started_at_wd_by_hour) +
+  geom_bar(mapping = aes(y = started_at_wday, x = total_rides), stat = 'identity') +
+  facet_wrap(~member_casual)  + 
+  labs(title="Ride totals for each week day",
+       y="Week Day",
+       x="Total number of rides",
+       caption="Day extracted from started_at")
+
+```
+
+-   Both casual and member riders have similar hotspots on Sunday and Saturday from 10am to 6pm
+-   Considerably fewer number of rides before 5am on all days for both casual riders and members
+-   Both casual and member riders have high number of rides occurring from 5am to 9am and 3pm to 7pm
+-   Casual riders ride the most on the weekend, whereas members ride the fewest number of times on the weekend.
+
+
+```{r total rides over months and days, echo=FALSE}
+ggplot(data=started_at_d_by_month) +
+  geom_tile(mapping = aes(y = started_at_month, x = started_at_day, fill=total_rides)) +
+  facet_wrap(~member_casual) + 
+  labs(title="Ride totals over months and days",
+       y="Month",
+       x="Day",
+       caption="Day and Month extracted from started_at")
+
+ggplot(data=started_at_d_by_month) +
+  geom_bar(mapping = aes(y = started_at_month, x = total_rides), stat = 'identity') +
+  facet_wrap(~member_casual)  + 
+  labs(title="Ride totals for each month",
+       y="Month",
+       x="Total number of rides",
+       caption="Month extracted from started_at")
+```
+
+-   Greatest number of rides occur during June to September for both members and casuals; July being the highest for casuals, August (with July close behind) for members.
+-   For both members and casuals, fewest number of rides happen during December
+-   Members ride in march considerably more than casuals do
+
+
+### By duration of rides
+
+```{r ride duration over days and hours, echo=FALSE}
+
+ggplot(data=started_at_wd_by_hour) +
+  geom_tile(mapping = aes(y = started_at_wday, x = started_at_hour, fill=total_ride_durations_mins)) +
+  facet_wrap(~member_casual) + 
+  labs(title="Total ride durations over week days and hours",
+       y="Week Day",
+       x="Hour",
+       fill="Total ride duration (mins)",
+       caption="Week day and hour extracted from started_at")
+
+ggplot(data=started_at_wd_by_hour) +
+  geom_tile(mapping = aes(y = started_at_wday, x = started_at_hour, fill=mean_ride_duration_mins)) +
+  facet_wrap(~member_casual) + 
+  labs(title="Average ride durations over week days and hours",
+       y="Week Day",
+       x="Hour",
+       caption="Week day and hour extracted from started_at")
+```
+
+-   By comparison to casual riders, members tend to have similar average ride durations through the weekdays and hours of the day. 
+-   Both member and casual riders have the their highest ride durations on Sunday and Saturday
+
+```{r ride durations and week day bar chart, echo=FALSE}
+ggplot(data=started_at_wd_by_hour) +
+  geom_bar(mapping = aes(y = started_at_wday, x = mean_ride_duration_mins), stat = 'identity') +
+  facet_wrap(~member_casual)  + 
+  labs(title="Mean ride durations for each week day",
+       y="Week Day",
+       x="Mean Ride Duration (mins)",
+       caption="Week day extracted from started_at")
+
+ggplot(data=started_at_wd_by_hour) +
+  geom_bar(mapping = aes(y = started_at_wday, x = median_ride_duration_mins), stat = 'identity') +
+  facet_wrap(~member_casual)  + 
+  labs(title="Median ride durations for each week day",
+       y="Week Day",
+       x="Median Ride Duration (mins)",
+       caption="Day extracted from started_at")
+```
+
+-   Saturday and Sunday have the highest average ride durations for both Members and Casual riders.
+
+
+```{r ride durations and hour bar chart, echo=FALSE}
+ggplot(data=started_at_wd_by_hour) +
+  geom_bar(mapping = aes(x = started_at_hour, y = mean_ride_duration_mins), stat = 'identity') +
+  facet_wrap(~member_casual)  + 
+  labs(title="Mean ride durations for each hour",
+       x="Hour",
+       y="Mean Ride Duration (mins)",
+       caption="Hour extracted from started_at")
+
+ggplot(data=started_at_wd_by_hour) +
+  geom_bar(mapping = aes(x = started_at_hour, y = median_ride_duration_mins), stat = 'identity') +
+  facet_wrap(~member_casual)  + 
+  labs(title="Median ride durations for each hour",
+       x="Hour",
+       y="Median Ride Duration (mins)",
+       caption="Hour extracted from started_at")
+
+```
+
+- No insights can be found here
+
+```{r ride durations over months and days, echo=FALSE}
+ggplot(data=started_at_d_by_month) +
+  geom_tile(mapping = aes(y = started_at_month, x = started_at_day, fill=total_ride_durations_mins)) +
+  facet_wrap(~member_casual) + 
+  labs(title="Total ride durations over months and days",
+       y="Month",
+       x="Day",
+       fill="Total ride duration (mins)",
+       caption="Month and day extracted from started_at")
+
+ggplot(data=started_at_d_by_month) +
+  geom_tile(mapping = aes(y = started_at_month, x = started_at_day, fill=mean_ride_duration_mins)) +
+  facet_wrap(~member_casual) + 
+  labs(title="Average ride durations over months and days",
+       y="Month",
+       x="Day",
+       fill="Mean ride duration (mins)",
+       caption="Month and day extracted from started_at")
+```
+
+-   No insights can be found here
+
+```{r ride durations and month bar, echo=FALSE}
+ggplot(data=started_at_d_by_month) +
+  geom_bar(mapping = aes(y = started_at_month, x = mean_ride_duration_mins), stat = 'identity') +
+  facet_wrap(~member_casual)  + 
+  labs(title="Mean ride durations for month",
+       y="Month",
+       x="Mean Ride Duration (mins)",
+       caption="Month extracted from started_at")
+
+ggplot(data=started_at_d_by_month) +
+  geom_bar(mapping = aes(y = started_at_month, x = median_ride_duration_mins), stat = 'identity') +
+  facet_wrap(~member_casual)  + 
+  labs(title="Median ride durations for each month",
+       y="Month",
+       x="Median Ride Duration (mins)",
+       caption="Month extracted from started_at")
+```
+
+-   Highest average ride durations occur for both casual and member riders from May to August
+-   November and February have the lowst average ride durations for both casual and member riders
+
+### By distance of rides
+
+```{r ride distances over week day and hour, echo=FALSE}
+
+started_at_wd_by_hour <- started_at_wd_by_hour %>% mutate(mean_ride_distance_km=round(as.numeric(mean_ride_distance_m/1000), 3),
+                                                          median_ride_distance_km=round(as.numeric(median_ride_distance_m/1000), 3),
+                                                          total_ride_distance_km=round(as.numeric(total_ride_distance_m/1000),3))
+
+
+ggplot(data=started_at_wd_by_hour) +
+  geom_tile(mapping = aes(y = started_at_wday, x = started_at_hour, fill=total_ride_distance_km)) +
+  facet_wrap(~member_casual) + 
+  labs(title="Total ride distance over week days and hours",
+       y="Week Day",
+       x="Hour",
+       fill="Total ride distances (km)",
+       caption="Week day and hour extracted from started_at")
+
+ggplot(data=started_at_wd_by_hour) +
+  geom_tile(mapping = aes(y = started_at_wday, x = started_at_hour, fill=mean_ride_distance_m)) +
+  facet_wrap(~member_casual) + 
+  labs(title="Mean ride distance over week days and hours",
+       y="Week Day",
+       x="Hour",
+       fill="Mean ride distance (m)",
+       caption="Week day and hour extracted from started_at")
+
+```
+
+-   Members and casual have a similar spread of ride distances throughout the days and months
+-   Total ride distance heatmap is almost identical to total ride count heatmap over week days and hours 
+
+```{r ride distance and hour bar, echo=FALSE}
+ggplot(data=started_at_wd_by_hour) +
+  geom_bar(mapping = aes(x = started_at_hour, y = mean_ride_distance_km), stat = 'identity') +
+  facet_wrap(~member_casual)  + 
+  labs(title="Mean ride distances for each hour",
+       x="Hour",
+       y="Mean Ride Distances (km)",
+       caption="Hour extracted from started_at")
+
+ggplot(data=started_at_wd_by_hour) +
+  geom_bar(mapping = aes(x = started_at_hour, y = median_ride_distance_km), stat = 'identity') +
+  facet_wrap(~member_casual)  + 
+  labs(title="Median ride distances for each hour",
+       x="Hour",
+       y="Median Ride Distances (km)",
+       caption="Hour extracted from started_at")
+
+```
+
+-   Similar distributions of ride distances (mean and median) over the hours
+
+
+```{r ride distance and day bar, echo=FALSE}
+ggplot(data=started_at_wd_by_hour) +
+  geom_bar(mapping = aes(y = started_at_wday, x = mean_ride_distance_km), stat = 'identity') +
+  facet_wrap(~member_casual)  + 
+  labs(title="Mean ride distances for each week day",
+       y="Week Day",
+       x="Mean Ride Distances (km)",
+       caption="Week Day extracted from started_at")
+
+ggplot(data=started_at_wd_by_hour) +
+  geom_bar(mapping = aes(y = started_at_wday, x = median_ride_distance_km), stat = 'identity') +
+  facet_wrap(~member_casual)  + 
+  labs(title="Median ride distances for each week day",
+       y="Week Day",
+       x="Median Ride Distances (km)",
+       caption="Week Day extracted from started_at")
+```
+
+-   Highest average distances occur for both member and casuals on Saturday and Sundays
+
+
+```{r ride distance over month and day, echo=FALSE}
+started_at_d_by_month <- started_at_d_by_month %>% mutate(mean_ride_distance_km=round(as.numeric(mean_ride_distance_m/1000), 3),
+                                                          median_ride_distance_km=round(as.numeric(median_ride_distance_m/1000), 3),
+                                                          total_ride_distance_km=round(as.numeric(total_ride_distance_m/1000),3))
+
+
+ggplot(data=started_at_d_by_month) +
+  geom_tile(mapping = aes(y = started_at_month, x = started_at_day, fill=total_ride_distance_km)) +
+  facet_wrap(~member_casual) + 
+  labs(title="Total ride distance over months and days",
+       y="Month",
+       x="Day",
+       fill="Total ride distances (km)",
+       caption="Month and Day extracted from started_at")
+
+
+ggplot(data=started_at_d_by_month) +
+  geom_tile(mapping = aes(y = started_at_month, x = started_at_day, fill=total_ride_distance_km)) +
+  facet_wrap(~member_casual) + 
+  labs(title="Mean ride distance over months and days",
+       y="Month",
+       x="Day",
+       fill="Mean ride distances (km)",
+       caption="Month and Day extracted from started_at")
+```
+
+-   No insights can be found here
+
+```{r ride distance and month bar, echo=FALSE}
+ggplot(data=started_at_d_by_month) +
+  geom_bar(mapping = aes(y = started_at_month, x = mean_ride_distance_km), stat = 'identity') +
+  facet_wrap(~member_casual)  + 
+  labs(title="Mean ride distances for each month",
+       y="Month",
+       x="Mean Ride Distances (km)",
+       caption="Month extracted from started_at")
+
+ggplot(data=started_at_d_by_month) +
+  geom_bar(mapping = aes(y = started_at_month, x = median_ride_distance_km), stat = 'identity') +
+  facet_wrap(~member_casual)  + 
+  labs(title="Mean ride distances for each month",
+       y="Month",
+       x="Median Ride Distances (km)",
+       caption="Month extracted from started_at")
+
+```
+
+-   Highest average ride durations occur for both casual and member riders from May to August
+
+
+
+### How do members and casuals vary by location?
+
+```{r loading location data, include=FALSE}
+path_to_end_data <- file.path(folder, "end_location_2022-202303-divy-tripdata.csv")
+path_to_start_data <- file.path(folder, "start_location_2022-202303-divy-tripdata.csv")
+data_by_start_location <- read_csv(path_to_start_data, show_col_types = FALSE)
+data_by_end_location <- read_csv(path_to_end_data, show_col_types = FALSE)
+```
+
+```{r pinpointing location on map , echo=TRUE}
+
+# Finding out where the stations are located
+
+states <- map_data('state')
+
+data_by_end_location <- data_by_end_location %>% filter(end_lng < 0)
+
+ggplot() +
+  geom_polygon(data=states, mapping=aes(x=long, y=lat, group=group)) +
+  geom_text(data = states %>% group_by(region) %>% summarize(long=mean(long), lat=mean(lat)), mapping=aes(x=long, y=lat, group=region, label=region)) + 
+  geom_point(data=data_by_end_location, mapping=aes(x = end_lng, y = end_lat), col = "red")
+
+illinois <- states %>% filter(is.element(region, c('illinois')))
+
+ggplot() +
+  geom_polygon(illinois, mapping=aes(x=long, y=lat, group=group)) +
+  geom_point(data=data_by_end_location, mapping=aes(x = end_lng, y = end_lat), col = "red")
+
+
+```
+
+The stations congregate in the North Eastern region of Illinois, specically within and around the Chicago area.
+
+```{r loading shape file function, include=FALSE}
+fetch_shape_files <- function(zip_file_location, save_location){
+  library(stringr)
+  library(common)
+  # Create a junk folder to store things in zip
+  junk_folder_name <- str_replace(basename(zip_file_location), ".zip", "")
+  junk_path <- file.path(save_location, junk_folder_name)
+  dir.create(junk_path)
+  # Unzip file
+  unzip(zip_file_location,exdir=junk_path)
+  shape_files <- file.find(junk_path, "*.shp", up=0, down=0)
+  return (shape_files)
+}
+```
+
+```{r fetching chicago shape file, include=FALSE}
+library(sf)
+direc <- file.path(folder, "SHAPES")
+loc <- file.path(direc, "Chicago_community_areas.zip")
+sf_loc <- fetch_shape_files(loc, direc)[1]
+```
+
+
+Loading a shapefile of Chicago grouped by community:
+
+```{r display plain chicago shape file, echo=TRUE}
+chicago_sf <- st_read(sf_loc)
+ggplot(data=chicago_sf) +
+  geom_sf()
+```
+
+
+Each location, start or end, were grouped by their given Chicago community using the Chicago shape file. A subset of this aggregated data by community is shown below. 
+
+```{r loading location by chicago community data, echo=FALSE}
+library(readr) 
+path_to_community_data <- file.path(folder, "chicago_location_data_by_community.csv")
+location_by_community_data <- read_csv(path_to_community_data, show_col_types = FALSE)
+flextable(location_by_community_data %>% head())
+
+```
+
+```{r create chicago shape file with stats, include=FALSE}
+chicago_sf_with_stats <- left_join(chicago_sf, location_by_community_data, by="community")
+```
+
+```{r chicago locations view, echo=TRUE}
+chicago_sf_with_stats <- chicago_sf_with_stats %>% mutate(member_percentage=round(100*total_members/total_riders,3), total_riders_per_thousand=total_riders/1000)
+
+ggplot(data=chicago_sf_with_stats) +
+  geom_sf(aes(fill=member_percentage)) +
+  geom_point(aes(x = mid_longitude, y = mid_latitude, size=total_riders_per_thousand), alpha=0.2)  + 
+  labs(title="Station locations in Chicago",
+       fill="Percentage of members (%)",
+       size="Total number of riders (in thousands)",
+       x="Longitude",
+       y="Latitude",
+       alpha=NA)
+
+```
+
+```{r low membership chicago view, echo=FALSE}
+ggplot(data=chicago_sf_with_stats) +
+  geom_sf(aes(fill=member_percentage)) +
+  geom_point(data=chicago_sf_with_stats %>% filter(member_percentage < 50, total_riders>1000), mapping=aes(x = mid_longitude, y = mid_latitude, size=total_riders_per_thousand), alpha=0.2)  + 
+  labs(title="Station locations with fewer members in Chicago ",
+       fill="Percentage of members (%)",
+       size="Total number of riders (in thousands)",
+       x="Longitude",
+       y="Latitude",
+       alpha=NA,
+       caption="Only regions with over 1000 riders and a member percentage less than 50 have been marked")
+```
+
+
+
+```{r eval=FALSE, include=FALSE}
+location_by_community_data <- location_by_community_data %>% mutate(member_percentage=round(100*total_members/total_riders,3))
+location_focus <- location_by_community_data %>% 
+  arrange(desc(total_riders), member_percentage) %>% filter(member_percentage < 50)
+flextable(location_focus %>% select(community, member_percentage, total_riders, total_starts, total_ends))
+#?arrange()
+```
+
+# Summary
+
+
