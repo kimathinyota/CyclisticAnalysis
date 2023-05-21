@@ -1,0 +1,3 @@
+"member_casual","number_of_rides","mean_h_distance","median_h_distance","total_h_distance","std_h_distance","mean_duration_mins","median_duration_mins","total_duration_mins","std_duration","number_of_electric","number_of_classic","number_of_docked"
+"casual",2262830,2185.25954501639,1657.27,4932812594.07996,9483.71406555014,30.105450028946,13.033,68123515.4890045,283.315246703514,1138046,940357,184427
+"member",3576602,2092.5196055664,1504.55,7482506936.2898,12856.1616013134,12.5153824297476,8.683,44762541.8290013,29.8187640351128,1628481,1948121,0
