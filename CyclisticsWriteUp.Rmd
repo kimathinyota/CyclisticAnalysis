@@ -78,8 +78,7 @@ schema <- data.frame(columns=cols, types=typs, n_missing, n_uniques )
 flextable(schema %>% mutate(completion_rate=(total_rows-n_missing)/total_rows) %>% mutate(across(where(is.numeric), round, 3)))
 ```
 ```{r Loading large CSV file, include=FALSE}
-folder <- "~/Data Science/Coursera Google Analytics Course/CyclisticsAnalysis"
-path_to_data <- file.path(folder, "2022-202303-divvy-tripdata.csv")
+path_to_data <- "2022-202303-divvy-tripdata.csv"
 X2022_202303_divvy_tripdata <- read_csv(path_to_data, show_col_types = FALSE)
 ```
 
@@ -233,7 +232,7 @@ flextable(example_clean_data_with_metrics %>% select(ride_id, ride_duration_mins
 ```
 
 ```{r Importing clean data, include=FALSE}
-path_to_data <- file.path(folder, "clean_2022-202303-divy-tripdata.csv")
+path_to_data <- "clean_2022-202303-divy-tripdata.csv"
 clean_data_with_metrics <- read_csv(path_to_data, show_col_types = FALSE)
 ```
 
@@ -258,11 +257,6 @@ basic_summary <- clean_data_with_metrics %>% group_by(member_casual) %>%
 counts_per_bike_type <- basic_summary  %>%  select(member_casual, number_of_electric, number_of_classic, number_of_docked, number_of_rides)
 distances_summary <- basic_summary %>% select(member_casual, total_h_distance, median_h_distance, mean_h_distance, std_h_distance)
 durations_summary <- basic_summary %>% select(member_casual, total_duration_mins, median_duration_mins, mean_duration_mins, std_duration)
-```
-
-```{r Save basic summary, include=FALSE}
-summary_path <- file.path(folder, "basic_summary.csv")
-write.csv(basic_summary, summary_path, row.names=FALSE)
 ```
 
 
@@ -630,8 +624,8 @@ ggplot(data=started_at_d_by_month) +
 ### How do members and casuals vary by location?
 
 ```{r loading location data, include=FALSE}
-path_to_end_data <- file.path(folder, "end_location_2022-202303-divy-tripdata.csv")
-path_to_start_data <- file.path(folder, "start_location_2022-202303-divy-tripdata.csv")
+path_to_end_data <- "end_location_2022-202303-divy-tripdata.csv"
+path_to_start_data <- "start_location_2022-202303-divy-tripdata.csv"
 data_by_start_location <- read_csv(path_to_start_data, show_col_types = FALSE)
 data_by_end_location <- read_csv(path_to_end_data, show_col_types = FALSE)
 ```
@@ -677,7 +671,7 @@ fetch_shape_files <- function(zip_file_location, save_location){
 
 ```{r fetching chicago shape file, include=FALSE}
 library(sf)
-direc <- file.path(folder, "SHAPES")
+direc <- "SHAPES"
 loc <- file.path(direc, "Chicago_community_areas.zip")
 sf_loc <- fetch_shape_files(loc, direc)[1]
 ```
@@ -696,7 +690,7 @@ Each location, start or end, were grouped by their given Chicago community using
 
 ```{r loading location by chicago community data, echo=FALSE}
 library(readr) 
-path_to_community_data <- file.path(folder, "chicago_location_data_by_community.csv")
+path_to_community_data <- "chicago_location_data_by_community.csv"
 location_by_community_data <- read_csv(path_to_community_data, show_col_types = FALSE)
 flextable(location_by_community_data %>% head())
 
