@@ -26,7 +26,7 @@ Goal: Using generated data for a fictional bike-share company, Cyclistics, to: i
 
 ## Project Files
 
-| Table  | Knitted from R-Markdown File |
+| HTML Report  | Knitted from R-Markdown File |
 | ------------- | ------------- |
 | [Report summarising analysis](https://htmlpreview.github.io/?https://github.com/kimathinyota/CyclisticAnalysis/blob/main/CyclisticsFindings.html )   | [CyclisticsFindings.Rmd](CyclisticsFindings.Rmd)  |
 | [Detailed report on the specifics steps taken (cleaning; processing) and justification for decisions made during the analysis](https://htmlpreview.github.io/?https://github.com/kimathinyota/CyclisticAnalysis/blob/main/CyclisticsWriteUp.html ) | [CyclisticsWriteUp.Rmd](CyclisticsWriteUp.Rmd)  |
