@@ -2,7 +2,8 @@
 title: "Case Study: How Does a Bike-Share Navigate Speedy Success?"
 author: "Kimathi Nyota"
 date: "2023-04-18"
-output: html_document
+output:
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -16,8 +17,8 @@ library(dplyr)
 library(geosphere)
 library(lubridate)
 library(readr)
-library(htmlTable)
-library(flextable)
+library(reactable)
+library(gtExtras)
 folder <- ""
 ```
 
@@ -48,6 +49,7 @@ In this fictional scenario, the data has been collected by Cyclistic, so it will
 ## Schema of cleaned data:
 
 ```{r cleaned data schema, echo=FALSE}
+options(warn=-1)
 total_rows <- 6307141
 total_columns <- 13
 cols <- c('ride_id', 'rideable_type', 'start_station_name', 'start_station_id', 'end_station_name', 'end_station_id', 'member_casual', 'start_lat', 'start_lng', 'end_lat', 'end_lng', 'haversine_distance', 'ride_duration_mins', 'started_at', 'ended_at' )
@@ -55,7 +57,7 @@ typs <- c('string', 'string', 'string', 'string', 'string', 'string', 'string', 
 n_missing <- c(0, 0, 453475, 453591, 518064, 518190, 0, 0, 0, 6284, 6284, 6284, 0, 0, 0)
 n_uniques <- c(5839432, 3, 1705, 1321, 1728, 1326, 2, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN)
 schema <- data.frame(columns=cols, types=typs, n_missing, n_uniques )
-flextable(schema %>% mutate(completion_rate=round((total_rows-n_missing)/total_rows)))
+schema %>% mutate(completion_rate=paste0(round((total_rows-n_missing)/total_rows)*100, "%")) %>%  gt::gt() %>% gt_hulk_col_numeric(n_missing, reverse=TRUE)
 ```
 
 
@@ -92,7 +94,7 @@ ggplot(data=bike_type_proprotions) +
 ```{r durations by member casual, echo=FALSE}
 durations_by_member <- durations_summary %>% mutate(total_duration_hours=as.numeric(total_duration_mins/60)) %>% 
   select(member_casual, median_duration_mins, total_duration_hours, mean_duration_mins, std_duration)
-flextable(durations_by_member)
+durations_by_member %>% gt::gt() %>% gt_hulk_col_numeric(median_duration_mins: mean_duration_mins)
 ```
 
 -   Casual members go for slightly longer (in duration) rides than members.
@@ -105,7 +107,7 @@ distances_by_member <- distances_summary %>% mutate(total_distance_km=as.numeric
                              median_distance_km=as.numeric(median_h_distance/1000)) %>% 
   select(member_casual, median_distance_km, total_distance_km, mean_distance_km, std_distance_km)  %>% 
   mutate_if(is.numeric, ~round(., 3))
-flextable(distances_by_member)
+distances_by_member %>% gt::gt() %>% gt_hulk_col_numeric(median_distance_km: mean_distance_km)
 ```
 
 -   Casual and members travel similar distances.
@@ -266,7 +268,7 @@ Each location, start or end, were grouped by their given Chicago community using
 library(readr) 
 path_to_community_data <- "chicago_location_data_by_community.csv"
 location_by_community_data <- read_csv(path_to_community_data, show_col_types = FALSE)
-flextable(location_by_community_data %>% head())
+location_by_community_data %>% head() %>% gt::gt()
 
 ```
 
@@ -293,7 +295,7 @@ ggplot(data=chicago_sf_with_stats) +
 ggplot(data=chicago_sf_with_stats) +
   geom_sf(aes(fill=member_percentage)) +
   geom_point(data=chicago_sf_with_stats %>% filter(member_percentage < 50, total_riders>1000), mapping=aes(x = mid_longitude, y = mid_latitude, size=total_riders_per_thousand), alpha=0.2)  + 
-  labs(title="Station locations with fewer members in Chicago ",
+  labs(title="Station locations with fewer members than casuals in Chicago ",
        fill="Percentage of members (%)",
        size="Total number of riders (in thousands)",
        x="Longitude",
@@ -306,6 +308,6 @@ ggplot(data=chicago_sf_with_stats) +
 location_by_community_data <- location_by_community_data %>% mutate(member_percentage=round(100*total_members/total_riders,3))
 location_focus <- location_by_community_data %>% 
   arrange(desc(total_riders), member_percentage) %>% filter(member_percentage < 50)
-htmlTableWidget(location_focus %>% select(community, member_percentage, total_riders, total_starts, total_ends))
+location_focus %>% select(community, member_percentage, total_riders, total_starts, total_ends) %>% reactable()
 #?arrange()
 ```
