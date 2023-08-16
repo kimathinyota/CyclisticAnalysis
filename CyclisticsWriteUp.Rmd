@@ -75,7 +75,7 @@ typs <- c('string', 'string', 'string', 'string', 'string', 'string', 'string', 
 n_missing <- c(0, 0, 921168, 921300, 985758, 985899, 0, 0, 0, 6284, 6284, 0, 0)
 n_uniques <- c(6307141, 3, 1705, 1321, 1728, 1326, 2, NaN, NaN, NaN, NaN, NaN, NaN)
 schema <- data.frame(columns=cols, types=typs, n_missing, n_uniques )
-flextable(schema %>% mutate(completion_rate=(total_rows-n_missing)/total_rows) %>% mutate(across(where(is.numeric), round, 3)))
+flextable(schema %>% mutate(completion_rate=(total_rows-n_missing)/total_rows) %>% mutate_if(is.numeric, ~round(., 1)))
 ```
 ```{r Loading large CSV file, include=FALSE}
 path_to_data <- "2022-202303-divvy-tripdata.csv"
@@ -298,7 +298,7 @@ distances_by_member <- distances_summary %>% mutate(total_distance_km=as.numeric
                              std_distance_km=as.numeric(std_h_distance/1000),
                              median_distance_km=as.numeric(median_h_distance/1000)) %>% 
   select(member_casual, median_distance_km, total_distance_km, mean_distance_km, std_distance_km)  %>% 
-  mutate(across(where(is.numeric), round, 3))
+  mutate_if(is.numeric, ~round(., 1))
 flextable(distances_by_member)
 ```
 
